@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="utf-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.4.xsd">
+
+    <property name="now" value="now()" dbms="h2"/>
+    <property name="now" value="current_timestamp" dbms="postgresql"/>
+    <property name="floatType" value="float4" dbms="postgresql, h2"/>
+
+    <property name="uuid_type" value="uuid" dbms="postgresql"/>
+    <property name="uuid_function" value="uuid_generate_v4()::VARCHAR" dbms="postgresql"/>
+    <property name="uuid_function" value="cast(random_uuid() as VARCHAR)" dbms="h2"/>
+
+    <changeSet id="0" author="kk">
+        <sql>
+            CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+        </sql>
+    </changeSet>
+
+    <changeSet id="1" author="kk">
+        <createTable tableName="service">
+            <column name="id" type="varchar"><constraints primaryKey="true" nullable="false"/></column>
+
+            <column name="name" type="varchar"><constraints nullable="false"/></column>
+            <column name="twitter_handle" type="varchar"><constraints nullable="false"/></column>
+            <column name="status_page_url" type="varchar"><constraints nullable="false"/></column>
+            <column name="subscribed_email" type="varchar"><constraints nullable="false"/></column>
+
+            <column name="created_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+            <column name="updated_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+        </createTable>
+
+        <createIndex indexName="idx_service_name" tableName="service" unique="true">
+            <column name="name"/>
+        </createIndex>
+
+        <createIndex indexName="idx_service_updated_at" tableName="service">
+            <column name="updated_at"/>
+        </createIndex>
+
+        <createTable tableName="service_status">
+            <column name="service_id" type="varchar"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="created_at" type="timestamp with time zone"><constraints primaryKey="true" nullable="false"/></column>
+
+            <column name="status" type="varchar"><constraints nullable="false"/></column>
+            <column name="text" type="varchar"><constraints nullable="false"/></column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="2" author="kk">
+        <createTable tableName="service_check">
+            <column name="id" type="varchar">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="service_id" type="varchar"><constraints nullable="false"/></column>
+            <column name="name" type="varchar"><constraints nullable="false"/></column>
+
+            <column name="status_page_url" type="varchar"><constraints nullable="false"/></column>
+            <column name="updated_at" type="timestamp with time zone"><constraints nullable="false"/></column>
+        </createTable>
+        <createIndex indexName="idx_service_check_service_id_name" tableName="service_check" unique="true">
+            <column name="service_id"/>
+            <column name="name"/>
+        </createIndex>
+
+        <sql>
+            INSERT INTO service_check
+            SELECT uuid_generate_v4() AS id, id AS service_id, '' AS name, status_page_url, updated_at FROM service;
+        </sql>
+
+        <dropColumn tableName="service" columnName="status_page_url"/>
+    </changeSet>
+
+    <changeSet id="3" author="kk">
+        <renameTable oldTableName="service_status" newTableName="service_check_status"/>
+        <renameColumn tableName="service_check_status" oldColumnName="service_id" newColumnName="service_check_id"/>
+    </changeSet>
+
+    <changeSet id="4" author="kk">
+        <createView viewName="service_check_with_status">
+            SELECT sc.service_id, sc.name, sc.status_page_url, scs.created_at, scs.status, scs.text
+            FROM service_check sc
+            LEFT JOIN service_check_status scs ON sc.id = scs.service_check_id
+        </createView>
+    </changeSet>
+
+    <changeSet id="5" author="kk">
+        <addColumn tableName="service_check">
+            <column name="selector" type="varchar" defaultValue="span.status">
+                <constraints nullable="false"/>
+            </column>
+            <column name="mapper" type="varchar" defaultValue="s/\n.*//">
+                <constraints nullable="false"/>
+            </column>
+            <column name="match_okay" type="varchar" defaultValue="\b[Aa]ll [Ss]ystems [Oo]perational\b">
+                <constraints nullable="false"/>
+            </column>
+            <column name="match_warn" type="varchar" defaultValue="\b([Mm]inor|[Ss]ome)\b">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+
+        <addColumn tableName="service_check_status">
+            <column name="state" type="varchar" defaultValue="OK">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="6" author="kk">
+        <dropView viewName="service_check_with_status" />
+
+        <createView viewName="service_check_with_status">
+            SELECT sc.service_id, sc.name, sc.status_page_url, scs.created_at, scs.state, scs.status, scs.text
+            FROM service_check sc
+            LEFT JOIN service_check_status scs ON sc.id = scs.service_check_id
+        </createView>
+
+        <sql>
+            <![CDATA[
+            UPDATE service_check_status
+            SET service_check_id = service_check.id
+            FROM service_check
+            WHERE service_check_status.service_check_id = service_check.service_id
+            AND LENGTH(service_check_status.service_check_id) < 36;
+            ]]>
+        </sql>
+    </changeSet>
+
+    <changeSet id="7" author="kk">
+        <addColumn tableName="service_check">
+            <column name="status_data_url" type="varchar">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <dropView viewName="service_check_with_status" />
+
+        <createView viewName="service_check_with_status">
+            SELECT sc.service_id, sc.name, sc.status_page_url, sc.status_data_url, scs.created_at, scs.state, scs.status, scs.text
+            FROM service_check sc
+            LEFT JOIN service_check_status scs ON sc.id = scs.service_check_id
+        </createView>
+    </changeSet>
+
+    <changeSet id="8" author="kk">
+        <sql>
+            UPDATE service_check SET status_data_url = status_page_url WHERE status_data_url IS NULL;
+        </sql>
+    </changeSet>
+
+    <changeSet id="9" author="kk">
+        <addColumn tableName="service_check">
+            <column name="match_down" type="varchar" defaultValue="">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="10" author="kk">
+        <addColumn tableName="service_check">
+            <column name="script" type="varchar" defaultValue="">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="11" author="kk">
+        <addColumn tableName="service">
+            <column name="visibility" type="varchar" defaultValue="PUBLIC">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="12" author="kk">
+        <addColumn tableName="service_check">
+            <column name="warn_selector" type="varchar" defaultValue="">
+                <constraints nullable="false"/>
+            </column>
+            <column name="down_selector" type="varchar" defaultValue="">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>
