@@ -1,7 +1,7 @@
 package me.statuspages.db
 
 import com.zaxxer.hikari.HikariDataSource
-import org.skife.jdbi.v2.DBI
+import org.jdbi.v3.core.Jdbi
 
 import javax.sql.DataSource
 import java.net.URI
@@ -11,6 +11,7 @@ import java.util.Optional
 
 class Database constructor(url: String, username: String, password: String) {
     private val dataSource: DataSource
+    public val jdbi: Jdbi
 
     init {
         val ds = HikariDataSource()
@@ -19,11 +20,8 @@ class Database constructor(url: String, username: String, password: String) {
         ds.password = password
 
         this.dataSource = ds
-    }
-
-    fun <T> getDao(daoType: Class<T>): T {
-        val dbi = DBI(this.dataSource)
-        return dbi.open(daoType)
+        this.jdbi = Jdbi.create(this.dataSource)
+        jdbi.installPlugins()
     }
 
     companion object {
